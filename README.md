@@ -11,7 +11,7 @@ sudo insmod ./server.ko
 python url.py
 ```
 
-# Usage for server_npy.kp
+# Usage for server_npy.ko
 
 kernel server without python
 
