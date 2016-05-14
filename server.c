@@ -15,221 +15,210 @@
 #include <linux/sched.h>
 #include <linux/kmod.h>
 
-
-struct socket *sock;
+struct socket *server_sock;
 static struct workqueue_struct *my_wq;
+
 struct work_struct_data  
 {  
-    struct work_struct my_work;         //表示一个工作  
-    struct socket * client;              //传给处理函数的数据(client socket)  
+    struct work_struct my_work;
+    struct socket * client;
 };
-
 
 static void work_handler(struct work_struct *work)  
 {
-        struct work_struct_data *wsdata = (struct work_struct_data *)work;  
-        char *recvbuf=NULL;  
-        recvbuf=kmalloc(1024,GFP_KERNEL);  
-        if(recvbuf==NULL)
-        {  
-            printk("server: recvbuf kmalloc error!\n");  
-            return ;  
-        }  
-        memset(recvbuf, 0, sizeof(recvbuf));  
+    struct work_struct_data *wsdata = (struct work_struct_data *) work;  
+    char *recvbuf = NULL;  
+    recvbuf = kmalloc(1024, GFP_KERNEL);  
+    if (recvbuf == NULL){  
+        printk("server: recvbuf kmalloc error!\n");  
+        return;  
+    }  
+    memset(recvbuf, 0, sizeof(recvbuf));  
           
-        //receive message from client  
-        struct kvec vec;  
-        struct msghdr msg;  
-        memset(&vec,0,sizeof(vec));  
-        memset(&msg,0,sizeof(msg));  
-        vec.iov_base=recvbuf;  
-        vec.iov_len=1024;  
-        int ret=0;
-        ret=kernel_recvmsg(wsdata->client,&msg,&vec,1,1024,0);  
-        //printk("receive message:\n%s\n",recvbuf); 
-        //printk("receive size=%d\n",ret);  
-      
-        //char *buf2;
-        //buf2=dealrequest(recvbuf,buf2);
+    //receive message from client  
 
-        /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-        struct socket *urlsock;
-        struct sockaddr_in s_addr2;  
-        unsigned short portnum2=9999;        
-        memset(&s_addr2,0,sizeof(s_addr2));
-        s_addr2.sin_family=AF_INET;  
-        s_addr2.sin_port=htons(portnum2);  
-        s_addr2.sin_addr.s_addr=in_aton("127.0.0.1");  
-        urlsock=(struct socket *)kmalloc(sizeof(struct socket),GFP_KERNEL);  
-      
-    /*create a socket*/  
-        ret=sock_create_kern(AF_INET, SOCK_STREAM,0,&urlsock);  
-        if(ret<0){  
-            printk("client:socket create error!\n");  
-            return ;  
-        }  
-        ret=urlsock->ops->connect(urlsock,(struct sockaddr *)&s_addr2, sizeof(s_addr2),0);  
-        if(ret!=0){  
-            printk("client:connect error!\n");  
-            return ;  
-        }  
-        //send to url.py
-
-        int len=strlen(recvbuf)+1;    
-        struct kvec vecsend;  
-        struct msghdr msgsend;  
-      
-        vecsend.iov_base=recvbuf;  
-        vecsend.iov_len=len;  
-        printk("\nrecvbuf22==%slen==%d\n",recvbuf,len);
-        memset(&msgsend,0,sizeof(msgsend));  
-      
-        ret= kernel_sendmsg(urlsock,&msgsend,&vecsend,1,len);  
-        if(ret<0){  
-            printk("client: kernel_sendmsg error!\n");  
-            return ;   
-        }
-        else if(ret!=len){  
-            printk("client: ret!=len\n");  
-        }  
-        kfree(recvbuf); 
-        //recv from url.py
-
-        char *urlpy=NULL;  
-        urlpy=kmalloc(1024000,GFP_KERNEL);  
-        if(urlpy==NULL)
-        {  
-            printk("server: recvbuf kmalloc error!\n");  
-            return ;  
-        }  
-        memset(urlpy, 0, sizeof(urlpy));  
-
-        struct kvec vec3;  
-        struct msghdr msg3;  
-        memset(&vec3,0,sizeof(vec3));  
-        memset(&msg3,0,sizeof(msg3));  
-        vec3.iov_base=urlpy;  
-        vec3.iov_len=1024000;  
-        ret=kernel_recvmsg(urlsock,&msg3,&vec3,1,1024000,0);  
-        sock_release(urlsock);  
-
-
-        /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    struct kvec vec_client;  
+    struct msghdr msg_client;  
+    memset(&vec_client, 0, sizeof(vec_client));  
+    memset(&msg_client, 0, sizeof(msg_client));  
+    vec_client.iov_base = recvbuf;  
+    vec_client.iov_len = 1024;  
+    int ret = 0;
+    ret = kernel_recvmsg(wsdata->client, &msg_client, &vec_client, 1, 1024, 0);  
     
-        //send message to client ///////////////////////////////
-        printk("urlpy==%s",urlpy);
-        len=strlen(urlpy)*sizeof(char);
-        struct kvec vec2;  
-        struct msghdr msg2;  
-        vec2.iov_base=urlpy; 
-        vec2.iov_len=len;  
-        memset(&msg2,0,sizeof(msg2));
-        ret= kernel_sendmsg(wsdata->client,&msg2,&vec2,1,len);
-        kfree(urlpy);
-        urlpy=NULL;
-        //release client socket
-        sock_release(wsdata->client);  
+    //create a socket for sending request to url.py
+
+    struct socket *urlsock;
+    struct sockaddr_in s_addr2;  
+    unsigned short url_portnum = 9999;        
+    memset(&s_addr2, 0, sizeof(s_addr2));
+    s_addr2.sin_family = AF_INET;  
+    s_addr2.sin_port = htons(url_portnum);
+    s_addr2.sin_addr.s_addr = in_aton("127.0.0.1");  
+    urlsock = (struct socket *) kmalloc (sizeof(struct socket), GFP_KERNEL);  
+      
+    ret = sock_create_kern(current->nsproxy->net_ns, AF_INET, SOCK_STREAM, 0, &urlsock);  
+    if (ret < 0) {  
+        printk("client:socket create error!\n");  
+        return;  
+    }  
+    ret = urlsock->ops->connect(urlsock, (struct sockaddr *)&s_addr2, sizeof(s_addr2), 0);  
+    if (ret != 0) {  
+        printk("client:connect error!\n");  
+        return;  
+    } 
+ 
+    //send request to url.py
+
+    int len = strlen(recvbuf) + 1;    
+    struct kvec vec_sendpy;  
+    struct msghdr msg_sendpy;        
+    vec_sendpy.iov_base = recvbuf;  
+    vec_sendpy.iov_len = len;
+ 
+    printk("client request == %s\nlen == %d\n", recvbuf, len);
+    memset(&msg_sendpy, 0, sizeof(msg_sendpy));
+    ret = kernel_sendmsg(urlsock, &msg_sendpy, &vec_sendpy, 1, len);  
+    if (ret < 0) {  
+        printk("client: kernel_sendmsg error!\n");  
+        return;   
+    }
+    else if (ret != len) {  
+        printk("client: ret!=len\n");  
+    }
+  
+    kfree(recvbuf);
+ 
+    //recv response from url.py
+
+    char *url_reponse = NULL;  
+    url_reponse = kmalloc(1024000, GFP_KERNEL);  
+    if (url_reponse == NULL) {  
+        printk("server: recvbuf kmalloc error!\n");  
+        return ;  
+    }
+    memset(url_reponse, 0, sizeof(url_reponse)); 
+
+    struct kvec vec_recvpy;
+    struct msghdr msg3;
+    memset(&vec_recvpy, 0, sizeof(vec_recvpy));
+    memset(&msg3, 0, sizeof(msg3));
+    vec_recvpy.iov_base = url_reponse;
+    vec_recvpy.iov_len = 1024000;
+    ret = kernel_recvmsg(urlsock, &msg3, &vec_recvpy, 1, 1024000, 0);
+    if (ret < 0) {
+	printk("server: kernel_recvmsg error!\n");
+    }
+
+    printk("url.py reponse == %s\n", url_reponse);
+    sock_release(urlsock);
+    
+    //send message to client
+
+    len = strlen(url_reponse) * sizeof(char);  
+    vec_client.iov_base = url_reponse; 
+    vec_client.iov_len = len;
+    memset(&msg_client, 0, sizeof(msg_client));
+    ret = kernel_sendmsg(wsdata->client, &msg_client, &vec_client, 1, len);
+
+    kfree(url_reponse);
+
+    //release client socket
+    sock_release(wsdata->client);  
 }  
 
 
 int myserver(void)
 {      
+    /*create a client_sock to receive client message*/
+    /*define a server_sock to accept client connection*/
+
     struct socket *client_sock;  
     struct sockaddr_in s_addr;  
-    unsigned short portnum=8888;  
-    int ret=0;  
-
-    memset(&s_addr,0,sizeof(s_addr));  
-    s_addr.sin_family=AF_INET;  
-    s_addr.sin_port=htons(portnum);  
-    s_addr.sin_addr.s_addr=htonl(INADDR_ANY);  
+    unsigned short server_portnum = 8888;  
+    memset(&s_addr, 0, sizeof(s_addr));  
+    s_addr.sin_family = AF_INET;  
+    s_addr.sin_port = htons(server_portnum);  
+    s_addr.sin_addr.s_addr = htonl(INADDR_ANY);  
     
-    sock=(struct socket *)kmalloc(sizeof(struct socket),GFP_KERNEL);
-    client_sock=(struct socket *)kmalloc(sizeof(struct socket),GFP_KERNEL);   
-    /*create a socket*/  
-    ret=sock_create_kern(AF_INET, SOCK_STREAM,0,&sock);  
-    if(ret)
-    {  
-        printk("server:socket_create error!\n");  
-    }  
-    printk("server:socket_create ok!\n");  
+    server_sock = (struct socket *) kmalloc (sizeof(struct socket), GFP_KERNEL);
+    client_sock = (struct socket *) kmalloc (sizeof(struct socket), GFP_KERNEL);
   
-    /*set the socket can be reused*/  
-    int val=1;  
-    ret= kernel_setsockopt(sock,SOL_SOCKET,SO_REUSEADDR,(char *)&val,sizeof(val));  
-    if(ret)
-    {  
-        printk("kernel_setsockopt error!!!!!!!!!!!\n");  
+    int ret = sock_create_kern(current->nsproxy->net_ns, AF_INET, SOCK_STREAM,0,&server_sock);  
+    if (ret) {  
+        printk("server: socket_create error!\n");  
+    }  
+    printk("server: socket_create ok!\n");  
+  
+    /*set the socket can be reused*/
+  
+    int val = 1;  
+    ret = kernel_setsockopt(server_sock, SOL_SOCKET, SO_REUSEADDR, (char *)&val, sizeof(val));  
+    if(ret){  
+        printk("server: kernel_setsockopt error!\n");  
     }  
   
-    /*bind the socket*/  
-    ret=sock->ops->bind(sock,(struct sockaddr *)&s_addr,sizeof(struct sockaddr_in));
-    if(ret<0)
-    {  
-        printk("server: bind error\n");  
-        return ret;  
-    }  
-    printk("server:bind ok!\n");  
+    /*bind the socket*/
+ 
+    ret = server_sock->ops->bind(server_sock, (struct sockaddr *)&s_addr, sizeof(struct sockaddr_in));
+    if (ret < 0) {  
+        printk("server: bind error!\n");  
+        return;
+    }
+    printk("server: bind ok!\n");  
     
-    /*listen*/  
-    ret=sock->ops->listen(sock,10);  
-    if(ret<0)
-    {  
-        printk("server: listen error\n");  
-        return ret;  
+    /*listen the socket*/
+  
+    ret = server_sock->ops->listen(server_sock, 10);  
+    if (ret < 0) {  
+        printk("server: listen error!\n");  
+        return;  
     }  
-    printk("server:listen ok!\n");  
-    
+    printk("server: listen ok!\n");
 
     my_wq = create_workqueue("my_queue");
+
     while(1)
     {
-        ret=1;
         struct work_struct_data * wsdata;
-        ret = kernel_accept(sock,&client_sock,100);  
-        printk("server:accept ing!,ret=%d\n",ret); 
+        ret = kernel_accept(server_sock, &client_sock, 100);   
         if(ret<0)
         {  
-            printk("server:accept error!,ret=%d\n",ret);  
-            //return ret; 
+            printk("server: accept error!\n");  
             break; 
-        }  
-        if (my_wq) 
-        {
-            wsdata = (struct work_struct_data *) kmalloc(sizeof(struct work_struct_data), GFP_KERNEL);
-                  //  设置要传递的数据  
+        }
+	printk("server: accept success!\n");
+
+        if (my_wq) {
+ 
+            /*set workqueue data*/
+
+            wsdata = (struct work_struct_data *) kmalloc (sizeof(struct work_struct_data), GFP_KERNEL);
             wsdata->client = client_sock;  
-            if (wsdata)  
-            {
-                //初始化work_struct类型的变量（主要是指定处理函数）  
-                INIT_WORK(&wsdata->my_work, work_handler);  
-                //将work添加到刚创建的工作队列中  
+            
+	    /*put task into workqueue*/
+
+            if (wsdata) { 
+                INIT_WORK(&wsdata->my_work, work_handler);    
                 ret = queue_work(my_wq, &wsdata->my_work);  
             }  
         }  
-        //printk("server: accept ok, Connection Established,ret=%d\n",ret);    
+        printk("server: accept ok, Connection Established.\n");    
     }
-    
-    sock_release(sock);  
-    return ret;  
+    sock_release(server_sock);  
+    return;  
 }  
   
-
-
-
-
 static int server_init(void)
 {
-    printk("server init:\n");  
+    printk("server: init!\n");  
     myserver();  
     return 0;  
 }         
   
 static void server_exit(void){  
-    printk("good bye\n");  
-    flush_workqueue(my_wq);  
-    //销毁工作队列  
+    printk("server: good bye!\n");  
+    flush_workqueue(my_wq);    
     destroy_workqueue(my_wq);  
 }  
 
