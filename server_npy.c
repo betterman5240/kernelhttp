@@ -26,103 +26,60 @@ struct work_struct_data
 
 static void work_handler(struct work_struct *work)  
 {
-    struct work_struct_data *wsdata = (struct work_struct_data *) work;  
-    char *recvbuf = NULL;  
+    int ret, len;
+    struct work_struct_data *wsdata = (struct work_struct_data *) work;
+    struct kvec vec_client;  
+    struct msghdr msg_client;   
+    char *recvbuf = NULL;
+    char *response_buf = NULL;
+  
     recvbuf = kmalloc(1024, GFP_KERNEL);  
     if (recvbuf == NULL){  
         printk("server: recvbuf kmalloc error!\n");  
         return;  
     }  
-    memset(recvbuf, 0, sizeof(recvbuf));  
+    memset(recvbuf, 0, 1024);
           
     //receive message from client  
-
-    struct kvec vec_client;  
-    struct msghdr msg_client;  
-    memset(&vec_client, 0, sizeof(vec_client));  
-    memset(&msg_client, 0, sizeof(msg_client));  
-    vec_client.iov_base = recvbuf;  
+ 
+    memset(&vec_client, 0, sizeof(struct kvec));  
+    memset(&msg_client, 0, sizeof(struct msghdr));  
+    vec_client.iov_base = recvbuf;
     vec_client.iov_len = 1024;  
-    int ret = 0;
     ret = kernel_recvmsg(wsdata->client, &msg_client, &vec_client, 1, 1024, 0);  
-    
-    //create a socket for sending request to url.py
 
-    struct socket *urlsock;
-    struct sockaddr_in s_addr2;  
-    unsigned short url_portnum = 9999;        
-    memset(&s_addr2, 0, sizeof(s_addr2));
-    s_addr2.sin_family = AF_INET;  
-    s_addr2.sin_port = htons(url_portnum);
-    s_addr2.sin_addr.s_addr = in_aton("127.0.0.1");  
-    urlsock = (struct socket *) kmalloc (sizeof(struct socket), GFP_KERNEL);  
-      
-    ret = sock_create_kern(current->nsproxy->net_ns, AF_INET, SOCK_STREAM, 0, &urlsock);  
-    if (ret < 0) {  
-        printk("client:socket create error!\n");  
-        return;  
-    }  
-    ret = urlsock->ops->connect(urlsock, (struct sockaddr *)&s_addr2, sizeof(s_addr2), 0);  
-    if (ret != 0) {  
-        printk("client:connect error!\n");  
-        return;  
-    } 
- 
-    //send request to url.py
-
-    int len = strlen(recvbuf) + 1;    
-    struct kvec vec_sendpy;  
-    struct msghdr msg_sendpy;        
-    vec_sendpy.iov_base = recvbuf;  
-    vec_sendpy.iov_len = len;
- 
-    printk("client request == %s\nlen == %d\n", recvbuf, len);
-    memset(&msg_sendpy, 0, sizeof(msg_sendpy));
-    ret = kernel_sendmsg(urlsock, &msg_sendpy, &vec_sendpy, 1, len);  
-    if (ret < 0) {  
-        printk("client: kernel_sendmsg error!\n");  
-        return;   
-    }
-    else if (ret != len) {  
-        printk("client: ret!=len\n");  
-    }
-  
-    kfree(recvbuf);
- 
-    //recv response from url.py
-
-    char *url_reponse = NULL;  
-    url_reponse = kmalloc(1024000, GFP_KERNEL);  
-    if (url_reponse == NULL) {  
-        printk("server: recvbuf kmalloc error!\n");  
-        return ;  
-    }
-    memset(url_reponse, 0, sizeof(url_reponse)); 
-
-    struct kvec vec_recvpy;
-    struct msghdr msg_recvpy;
-    memset(&vec_recvpy, 0, sizeof(vec_recvpy));
-    memset(&msg_recvpy, 0, sizeof(msg_recvpy));
-    vec_recvpy.iov_base = url_reponse;
-    vec_recvpy.iov_len = 1024000;
-    ret = kernel_recvmsg(urlsock, &msg_recvpy, &vec_recvpy, 1, 1024000, 0);
-    if (ret < 0) {
-	printk("server: kernel_recvmsg error!\n");
-    }
-
-    printk("url.py reponse == %s\n", url_reponse);
-    sock_release(urlsock);
+    len = strlen(recvbuf) + 1;
+             
+    //printk("client request == %s\nlen == %d\n", recvbuf, len);
     
     //send message to client
 
-    len = strlen(url_reponse) * sizeof(char);  
-    vec_client.iov_base = url_reponse; 
+    response_buf = kmalloc(1024, GFP_KERNEL);  
+    if (response_buf == NULL){  
+        printk("server: response_buf kmalloc error!\n");  
+        return;  
+    } 
+    memset(response_buf, 0, 1024);
+
+    snprintf(response_buf, 1024,
+	"HTTP/1.1 200 OK\r\n"
+        "Content-Length: 12\r\n"
+        "Connection: keep-alive\r\n"
+        "Keep-Alive: timeout=2\r\n"
+        "\r\n"
+        "Hello World!");
+
+    memset(&vec_client, 0, sizeof(struct kvec));
+    memset(&msg_client, 0, sizeof(struct msghdr));  
+    len = strlen(response_buf) * sizeof(char);  
+    vec_client.iov_base = response_buf; 
     vec_client.iov_len = len;
-    memset(&msg_client, 0, sizeof(msg_client));
+
     ret = kernel_sendmsg(wsdata->client, &msg_client, &vec_client, 1, len);
 
-    kfree(url_reponse);
-
+    kfree(recvbuf);
+    kfree(response_buf);
+    
     //release client socket
     sock_release(wsdata->client);  
 }  
@@ -133,10 +90,12 @@ int myserver(void)
     /*create a client_sock to receive client message*/
     /*define a server_sock to accept client connection*/
 
+    int ret, val;
     struct socket *client_sock;  
     struct sockaddr_in s_addr;  
-    unsigned short server_portnum = 8888;  
-    memset(&s_addr, 0, sizeof(s_addr));  
+    unsigned short server_portnum = 8888;
+  
+    memset(&s_addr, 0, sizeof(struct sockaddr_in));  
     s_addr.sin_family = AF_INET;  
     s_addr.sin_port = htons(server_portnum);  
     s_addr.sin_addr.s_addr = htonl(INADDR_ANY);  
@@ -144,7 +103,7 @@ int myserver(void)
     server_sock = (struct socket *) kmalloc (sizeof(struct socket), GFP_KERNEL);
     client_sock = (struct socket *) kmalloc (sizeof(struct socket), GFP_KERNEL);
   
-    int ret = sock_create_kern(current->nsproxy->net_ns, AF_INET, SOCK_STREAM,0,&server_sock);  
+    ret = sock_create_kern(current->nsproxy->net_ns, AF_INET, SOCK_STREAM, 0, &server_sock);  
     if (ret) {  
         printk("server: socket_create error!\n");  
     }  
@@ -152,8 +111,8 @@ int myserver(void)
   
     /*set the socket can be reused*/
   
-    int val = 1;  
-    ret = kernel_setsockopt(server_sock, SOL_SOCKET, SO_REUSEADDR, (char *)&val, sizeof(val));  
+    val = 1; 
+    ret = kernel_setsockopt(server_sock, SOL_SOCKET, SO_REUSEADDR, (char *)&val, sizeof(int));  
     if(ret){  
         printk("server: kernel_setsockopt error!\n");  
     }  
@@ -163,16 +122,16 @@ int myserver(void)
     ret = server_sock->ops->bind(server_sock, (struct sockaddr *)&s_addr, sizeof(struct sockaddr_in));
     if (ret < 0) {  
         printk("server: bind error!\n");  
-        return;
+        return ret;
     }
     printk("server: bind ok!\n");  
     
     /*listen the socket*/
   
-    ret = server_sock->ops->listen(server_sock, 10);  
+    ret = server_sock->ops->listen(server_sock, 100);  
     if (ret < 0) {  
         printk("server: listen error!\n");  
-        return;  
+        return ret;  
     }  
     printk("server: listen ok!\n");
 
@@ -206,7 +165,7 @@ int myserver(void)
         printk("server: accept ok, Connection Established.\n");    
     }
     sock_release(server_sock);  
-    return;  
+    return 0;  
 }  
   
 static int server_init(void)
