@@ -1,9 +1,26 @@
 # kernelhttp
-A simple http server in kernel.
 
-内核socket接受浏览器的请求，加入一个工作队列处理。再通过socket转发给用户态程序处理url。
 
-url通过外部程序处理，除了ssl外其他的功能基本和python服务器相同。
+# Usage for server.ko
 
-使用方法：
-先打开url.py 再加载内核模块。
+kernel server with python
+
+```bash
+make
+sudo insmod ./server.ko
+python url.py
+```
+
+# Usage for server_npy.kp
+
+kernel server without python
+
+```bash
+make NO_PY=1
+sudo insmod ./server_npy.ko
+```
+# Connect
+
+Use browser to connect `http://localhost:8888/` with kernel web server.
+
+You can also connect `http://localhost:9999` for server created by python only.
