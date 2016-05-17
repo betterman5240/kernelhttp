@@ -178,6 +178,8 @@ int myserver(void)
 
     my_wq = create_workqueue("my_queue");
 
+    //my_wq = alloc_workqueue("my_queue", WQ_HIGHPRI, 1);
+
     while(1)
     {
         struct work_struct_data * wsdata;

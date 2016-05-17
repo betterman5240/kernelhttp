@@ -135,8 +135,17 @@ int myserver(void)
     }  
     printk("server: listen ok!\n");
 
-    my_wq = create_workqueue("my_queue");
+#ifdef HIGH_PRI
+struct workqueue_attrs *attr;
+attr = alloc_workqueue_attrs(__GFP_HIGH);
+apply_workqueue_attrs(my_wq, attr);
+#else
+my_wq = create_workqueue("my_queue");
+#endif
+    
+    //my_wq = alloc_workqueue("my_queue",WQ_MEM_RECLAIM | WQ_HIGHPRI, 1);
 
+    
     while(1)
     {
         struct work_struct_data * wsdata;
